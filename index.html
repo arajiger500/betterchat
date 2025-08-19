@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Fenerbahçe Chat</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            width: 95%;
+            max-width: 700px;
+            margin: 20px auto;
+            background-color: #fff;
+            color: #003366;
+        }
+
+        #loginContainer, #chatContainer {
+            padding: 15px;
+            border-radius: 10px;
+        }
+
+        #loginContainer { background-color: #ffc400; }
+        #chatContainer { display: none; background-color: #003366; color: #fff; }
+
+        #chat {
+            border: 1px solid #ffc400;
+            height: 350px;
+            overflow-y: auto;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            background-color: #001f4d;
+        }
+
+        .message {
+            margin: 5px 0;
+            padding: 8px 12px;
+            border-radius: 15px;
+            max-width: 70%;
+            clear: both;
+            position: relative;
+            word-wrap: break-word;
+        }
+
+        .my-message { background-color: #ffc400; color:#003366; float: right; text-align: right; }
+        .other-message { background-color: #0059b3; float: left; }
+
+        .timestamp { font-size: 10px; color: #eee; margin-top: 3px; }
+        .reply { font-size: 12px; color: #ffc; border-left: 2px solid #ffc; padding-left: 5px; margin-bottom: 3px; }
+
+        #onlineUsers {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+            background-color: #ffc400;
+            color:#003366;
+        }
+
+        input[type="text"] {
+            padding: 10px;
+            width: calc(100% - 120px);
+            margin-right: 5px;
+            border-radius:5px;
+            border:none;
+            box-sizing: border-box;
+        }
+
+        button {
+            padding: 10px 12px;
+            border:none;
+            border-radius:5px;
+            background-color:#ffc400;
+            color:#003366;
+            cursor:pointer;
+        }
+
+        @media screen and (max-width: 500px) {
+            .message { max-width: 90%; }
+            input[type="text"] { width: calc(100% - 100px); }
+        }
+    </style>
+</head>
+<body>
+    <h1>Fenerbahçe Chat</h1>
+
+    <div id="loginContainer">
+        <input id="usernameInput" placeholder="Kullanıcı adınızı girin"/>
+    <button onclick="login()" 
+            style="background-color: #003366; color: #ffc400; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer;">
+        Giriş Yap
+    </button>
+        <p id="loginError" style="color:red;"></p>
+    </div>
+
+    <div id="chatContainer">
+        <p>Hoş geldiniz, <span id="displayUsername"></span>!</p>
+        <div id="onlineUsers"><strong>Online:</strong> <span id="onlineList"></span></div>
+
+        <div id="chat">
+            <!-- geçmiş mesajları kaydediyom-->
+            {% for msg in messages %}
+            <div id="{{msg.id}}" class="message {% if msg.username == '' %}my-message{% else %}other-message{% endif %}">
+                {% if msg.reply %}
+                <div class="reply">Cevap: {{msg.reply.username}}: {{msg.reply.text}}</div>
+                {% endif %}
+                <div>{{msg.username}}: {{msg.text}}</div>
+                <div class="timestamp">{{msg.timestamp}}</div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <form id="msgForm">
+            <input id="msg" type="text" autocomplete="off"/>
+            <button type="submit">Gönder</button>
+        </form>
+    </div>
+
+    <script>
+        var socket;
+        var username;
+        var replyTo = null;
+
+        function login() {
+            username = document.getElementById("usernameInput").value.trim();
+            if(username === "") { document.getElementById("loginError").innerText = "Lütfen kullanıcı adı girin!"; return; }
+
+            document.getElementById("loginContainer").style.display = "none";
+            document.getElementById("chatContainer").style.display = "block";
+            document.getElementById("displayUsername").innerText = username;
+
+            socket = io();
+            socket.emit("new_user", username);
+
+            socket.on("message", function(data) { displayMessage(data); });
+            socket.on("online_users", function(list) { document.getElementById("onlineList").innerText = list.join(", "); });
+            socket.on("delete_message", function(msg_id) {
+                let messageDiv = document.getElementById(msg_id);
+                if(messageDiv) messageDiv.remove();
+            });
+        }
+
+        document.getElementById("msgForm").addEventListener("submit", function(e){
+            e.preventDefault(); sendMsg();
+        });
+
+        function sendMsg() {
+            let input = document.getElementById("msg");
+            if(input.value.trim() !== "") {
+                let time = new Date();
+                let hours = time.getHours().toString().padStart(2,"0");
+                let minutes = time.getMinutes().toString().padStart(2,"0");
+                let timestamp = hours + ":" + minutes;
+
+                let msgObj = { username: username, text: input.value, timestamp: timestamp, reply: replyTo };
+                socket.emit("send_message", msgObj);
+                input.value = "";
+                replyTo = null;
+            }
+        }
+
+        function displayMessage(msg) {
+            let chat = document.getElementById("chat");
+            let messageDiv = document.createElement("div");
+            messageDiv.id = msg.id;
+            messageDiv.className = "message " + (msg.username === username ? "my-message" : "other-message");
+
+            if(msg.reply){
+                let replyDiv = document.createElement("div");
+                replyDiv.className = "reply";
+                replyDiv.innerText = "Cevap: " + msg.reply.username + ": " + msg.reply.text;
+                messageDiv.appendChild(replyDiv);
+            }
+
+            let textDiv = document.createElement("div");
+            textDiv.innerText = msg.username + ": " + msg.text;
+            messageDiv.appendChild(textDiv);
+
+            let timeDiv = document.createElement("div");
+            timeDiv.className = "timestamp";
+            timeDiv.innerText = msg.timestamp;
+            messageDiv.appendChild(timeDiv);
+
+            messageDiv.onclick = function(){ replyTo = msg; document.getElementById("msg").focus(); };
+            messageDiv.oncontextmenu = function(e){
+                e.preventDefault();
+                if(msg.username === username) socket.emit("delete_message", msg.id);
+            };
+
+            chat.appendChild(messageDiv);
+
+            //Otomatik scroll
+            chat.scrollTop = chat.scrollHeight;
+        }
+    </script>
+</body>
+</html>
