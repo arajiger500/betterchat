@@ -44,6 +44,7 @@
 
         .my-message { background-color: #ffc400; color:#003366; float: right; text-align: right; }
         .other-message { background-color: #0059b3; float: left; }
+        .system-message { background-color: #444; color:#ddd; text-align: center; margin: 10px auto; font-style: italic; }
 
         .timestamp { font-size: 10px; color: #eee; margin-top: 3px; }
         .reply { font-size: 12px; color: #ffc; border-left: 2px solid #ffc; padding-left: 5px; margin-bottom: 3px; }
@@ -54,6 +55,15 @@
             border-radius: 5px;
             background-color: #ffc400;
             color:#003366;
+        }
+
+        #replyBanner {
+            display:none;
+            background-color:#0059b3;
+            padding:5px;
+            border-radius:5px;
+            margin-bottom:5px;
+            font-size:13px;
         }
 
         input[type="text"] {
@@ -85,10 +95,10 @@
 
     <div id="loginContainer">
         <input id="usernameInput" placeholder="Kullanıcı adınızı girin"/>
-    <button onclick="login()" 
-            style="background-color: #003366; color: #ffc400; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer;">
-        Giriş Yap
-    </button>
+        <button onclick="login()" 
+                style="background-color: #003366; color: #ffc400; border: none; padding: 10px 15px; border-radius: 5px; cursor: pointer;">
+            Giriş Yap
+        </button>
         <p id="loginError" style="color:red;"></p>
     </div>
 
@@ -97,9 +107,8 @@
         <div id="onlineUsers"><strong>Online:</strong> <span id="onlineList"></span></div>
 
         <div id="chat">
-            <!-- geçmiş mesajları kaydediyom-->
             {% for msg in messages %}
-            <div id="{{msg.id}}" class="message {% if msg.username == '' %}my-message{% else %}other-message{% endif %}">
+            <div id="{{msg.id}}" class="message {% if msg.username == displayUsername %}my-message{% else %}other-message{% endif %}">
                 {% if msg.reply %}
                 <div class="reply">Cevap: {{msg.reply.username}}: {{msg.reply.text}}</div>
                 {% endif %}
@@ -108,6 +117,8 @@
             </div>
             {% endfor %}
         </div>
+
+        <div id="replyBanner"></div>
 
         <form id="msgForm">
             <input id="msg" type="text" autocomplete="off"/>
@@ -122,7 +133,10 @@
 
         function login() {
             username = document.getElementById("usernameInput").value.trim();
-            if(username === "") { document.getElementById("loginError").innerText = "Lütfen kullanıcı adı girin!"; return; }
+            if(username === "") { 
+                document.getElementById("loginError").innerText = "Lütfen kullanıcı adı girin!"; 
+                return; 
+            }
 
             document.getElementById("loginContainer").style.display = "none";
             document.getElementById("chatContainer").style.display = "block";
@@ -131,8 +145,12 @@
             socket = io();
             socket.emit("new_user", username);
 
-            socket.on("message", function(data) { displayMessage(data); });
-            socket.on("online_users", function(list) { document.getElementById("onlineList").innerText = list.join(", "); });
+            // Event listeners
+            socket.on("new_message", function(data) { displayMessage(data); });
+            socket.on("system_message", function(text) { displaySystemMessage(text); });
+            socket.on("online_users", function(list) { 
+                document.getElementById("onlineList").innerText = list.join(", "); 
+            });
             socket.on("delete_message", function(msg_id) {
                 let messageDiv = document.getElementById(msg_id);
                 if(messageDiv) messageDiv.remove();
@@ -146,15 +164,16 @@
         function sendMsg() {
             let input = document.getElementById("msg");
             if(input.value.trim() !== "") {
-                let time = new Date();
-                let hours = time.getHours().toString().padStart(2,"0");
-                let minutes = time.getMinutes().toString().padStart(2,"0");
-                let timestamp = hours + ":" + minutes;
-
-                let msgObj = { username: username, text: input.value, timestamp: timestamp, reply: replyTo };
+                let msgObj = { 
+                    username: username, 
+                    text: input.value, 
+                    timestamp: new Date().toISOString(), 
+                    reply: replyTo 
+                };
                 socket.emit("send_message", msgObj);
                 input.value = "";
                 replyTo = null;
+                document.getElementById("replyBanner").style.display = "none";
             }
         }
 
@@ -177,10 +196,20 @@
 
             let timeDiv = document.createElement("div");
             timeDiv.className = "timestamp";
-            timeDiv.innerText = msg.timestamp;
+            let localTime = new Date(msg.timestamp).toLocaleTimeString([], {hour:"2-digit", minute:"2-digit"});
+            timeDiv.innerText = localTime;
             messageDiv.appendChild(timeDiv);
 
-            messageDiv.onclick = function(){ replyTo = msg; document.getElementById("msg").focus(); };
+            // reply on click
+            messageDiv.onclick = function(){ 
+                replyTo = msg; 
+                let banner = document.getElementById("replyBanner");
+                banner.style.display = "block";
+                banner.innerText = "Cevap veriliyor: " + msg.username + " → " + msg.text;
+                document.getElementById("msg").focus(); 
+            };
+
+            // right-click delete
             messageDiv.oncontextmenu = function(e){
                 e.preventDefault();
                 if(msg.username === username) socket.emit("delete_message", msg.id);
@@ -188,7 +217,18 @@
 
             chat.appendChild(messageDiv);
 
-            //Otomatik scroll
+            // Auto-scroll if user is at bottom
+            if(chat.scrollHeight - chat.scrollTop <= chat.clientHeight + 50){
+                chat.scrollTop = chat.scrollHeight;
+            }
+        }
+
+        function displaySystemMessage(text) {
+            let chat = document.getElementById("chat");
+            let sysDiv = document.createElement("div");
+            sysDiv.className = "message system-message";
+            sysDiv.innerText = text;
+            chat.appendChild(sysDiv);
             chat.scrollTop = chat.scrollHeight;
         }
     </script>
